@@ -3,6 +3,8 @@ import scipy.io.wavfile as spwav
 from collections import namedtuple
 import os
 import tensorflow as tf
+import random
+import math
 
 #0.05 seconds
 #44.1k sampling rate
@@ -68,7 +70,7 @@ def makeDataPairs(labels, audio):
 
 
 def weight_variable(shape):
-	intial = tf.truncated_normal(shape, stddev=0.1)
+	initial = tf.truncated_normal(shape, stddev=0.1)
 	return tf.Variable(initial)
 
 def bias_variable(shape):
@@ -76,14 +78,15 @@ def bias_variable(shape):
 	return tf.Variable(initial)
 
 def conv1d(x, W):
-	return tf.nn.conv1d(x, W, [1,1,1], padding='SAME')
+	return tf.nn.conv1d(x, W, 1, padding='SAME')
 
 def max_pool(x):
-	return tf.layers.max_pooling1d(x, [1,2,1], [1,1,1], padding='SAME')
+	return tf.layers.max_pooling1d(x, 2, 1, padding='SAME')
 
 def net(x):
 	CONV1_SIZE = 5
-	NUM_FILTERS = 32
+	NUM_FILTERS1 = 32
+	WIN_POOL_SIZE = math.ceil(WIN_SIZE/2)
 
 	with tf.name_scope('reshape'):
 		x_window = tf.reshape(x, [-1, WIN_SIZE, 1]) #[t sample, t length, channels]
@@ -92,7 +95,7 @@ def net(x):
 	with tf.name_scope('conv1'):
 		w_conv1 = weight_variable([CONV1_SIZE, 1, NUM_FILTERS1]) 
 		b_conv1 = bias_variable([NUM_FILTERS1])
-		o_conv1 = tf.nn.relu(conv1d(x, w_conv1) + b_conv1)
+		o_conv1 = tf.nn.relu(conv1d(x_window, w_conv1) + b_conv1)
 
 	with tf.name_scope('pool1'):
 		o_pool1 = max_pool(o_conv1)
@@ -100,10 +103,10 @@ def net(x):
 	#dim shoud be [-1, 500, 32]
 	FC_SIZE = 64
 	with tf.name_scope('fc1'):
-		w_fc1 = weight_variable([WIN_SIZE/2, FC_SIZE])
+		w_fc1 = weight_variable([WIN_POOL_SIZE, FC_SIZE])
 		b_fc1 = weight_variable([NUM_FILTERS1])
 
-		o_pool_flat = tf.reshape(o_pool1, [-1, WIN_SIZE/2]) #remove conv deliniation and just make string of vectors
+		o_pool_flat = tf.reshape(o_pool1, [-1, WIN_POOL_SIZE]) #remove conv deliniation and just make string of vectors
 		o_fc1 = tf.nn.relu(tf.matmul(o_pool_flat, w_fc1) + b_fc1)
 
 	#output layer
@@ -114,8 +117,23 @@ def net(x):
 
 	return logits
 
-#def output(logits):
-#	with tf.name_scope('loss'):
+def output_layer(y, logits):
+	with tf.name_scope('loss'):
+		cross_entropy = tf.nn.softmax_cross_entropy_with_logits(labels=y, logits=logits)
+
+	cross_entropy = tf.reduce_mean(cross_entropy)
+
+	with tf.name_scope('optimizer'):
+		train_step = tf.train.AdamOptimizer(0.01).minimize(cross_entropy)
+
+	with tf.name_scope('accuracy'):
+		correctness = tf.equal(tf.argmax(logits, 1), tf.argmax(y, 1)) 
+		correctness = tf.cast(correctness, tf.float32)
+	accuracy = tf.reduce_mean(correctness)
+
+	return (train_step, accuracy)
+
+
 	
 def main():
 	#671 good labels
@@ -123,11 +141,33 @@ def main():
 	audio = getAudio()
 	print(labels.keys())
 	data_pairs = makeDataPairs(labels, audio)
-	
-	x = tf.placeholder([None, WIN_SIZE]) #None specifies arbitrary number of input windows
-	y = tf.placeholder([None, 2])
+	random.shuffle(data_pairs)
+
+	#segment into train eval test
+	train_size = int(0.6*len(data_pairs))
+	eval_cutoff = int(0.8*len(data_pairs))
+	train_set = data_pairs[:train_size]
+	eval_set = data_pairs[train_size:eval_cutoff]
+	test_set = data_pairs[eval_cutoff:]
+
+	x = tf.placeholder(tf.float32, [None, WIN_SIZE]) #None specifies arbitrary number of input windows
+	y = tf.placeholder(tf.float32, [None, 2])
+
+	logits = net(x)
+	train_step, accuracy = output_layer(ans, logits, data_pairs)
 
 	with tf.session() as sess:
-		sess.run(gloal_variale_initializer)
+		sess.run(global_varibale_initializer)
 
+		step_num = 2000
+		for i in range(step_num):
+			batch = random.sample(train, 50) #without replacement, but how?
+			
+			if i % 100 == 0:
+				train_accuracy = accuracy.eval(feed_dict={x: batch[0], y: batch[1]})
+				print('step ', i, 'training accuracy ', train_accuracy)
+
+			train_step.run(feed_dict={x: batch[0], y: batch[1]})
+
+		print('test accuracy ', 'insert here' )
 main()
