@@ -42,6 +42,10 @@ def makeDataPairs(labels, audio):
 	keys = labels.keys()
 	data_pairs = []
 
+	def inBound(time, truth, truth_id):
+		return (truth_id < len(truth) 
+			and (time < truth[truth_id] < time+0.05)) 
+
 	for key in keys:
 		print(key)
 		data = audio[key]
@@ -50,7 +54,7 @@ def makeDataPairs(labels, audio):
 		truth_id = 0
 		for pos in range(0, len(data), WIN_SIZE):
 			time = pos/SAMP_RATE
-			if(truth_id < len(truth) and (time < truth[truth_id] < time+0.05)):
+			if inBound(time, truth, truth_id):
 				entry = Entry(data[pos:pos+WIN_SIZE], [1,0])
 				truth_id += 1
 				while(truth_id < len(truth) and truth[truth_id] < pos+WIN_SIZE): truth_id += 1
@@ -58,16 +62,6 @@ def makeDataPairs(labels, audio):
 				entry = Entry(data[pos:pos+WIN_SIZE], [0,1])
 
 			data_pairs.append(entry)
-
-		#posibility of two onsets in one window causing infinite loop
-		#pos = 0
-		#for time in truth:
-		#	while(time < pos+WIN_SIZE):
-		#		data_pairs.append(entry)
-		#		pos += WIN_SIZE
-
-		#	data_pairs.append(entry)
-		#	pos += WIN_SIZE
 
 	return data_pairs
 
@@ -129,9 +123,7 @@ def main():
 	audio = getAudio()
 	print(labels.keys())
 	data_pairs = makeDataPairs(labels, audio)
-	print(len(data_pairs))
-	print(data_pairs)
-	exit()
+	
 	x = tf.placeholder([None, WIN_SIZE]) #None specifies arbitrary number of input windows
 	y = tf.placeholder([None, 2])
 
