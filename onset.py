@@ -104,15 +104,15 @@ def net(x):
 	FC_SIZE = 64
 	with tf.name_scope('fc1'):
 		w_fc1 = weight_variable([WIN_POOL_SIZE, FC_SIZE])
-		b_fc1 = weight_variable([NUM_FILTERS1])
-
+		b_fc1 = weight_variable([FC_SIZE])
+		#should be NUM_FILTERS vectors of length WIN_POOL_SIZE
 		o_pool_flat = tf.reshape(o_pool1, [-1, WIN_POOL_SIZE]) #remove conv deliniation and just make string of vectors
 		o_fc1 = tf.nn.relu(tf.matmul(o_pool_flat, w_fc1) + b_fc1)
 
 	#output layer
 	with tf.name_scope('fc2'):
 		w_fc2 = weight_variable([FC_SIZE, 2])
-		b_fc1 = weight_variable([2])
+		b_fc2 = weight_variable([2])
 		logits = tf.matmul(o_fc1, w_fc2) + b_fc2
 
 	return logits
@@ -144,6 +144,7 @@ def main():
 	random.shuffle(data_pairs)
 
 	#segment into train eval test
+	#THESE ARE LISTS OF ENTRIES
 	train_size = int(0.6*len(data_pairs))
 	eval_cutoff = int(0.8*len(data_pairs))
 	train_set = data_pairs[:train_size]
@@ -154,20 +155,22 @@ def main():
 	y = tf.placeholder(tf.float32, [None, 2])
 
 	logits = net(x)
-	train_step, accuracy = output_layer(ans, logits, data_pairs)
+	train_step, accuracy = output_layer(y, logits)
 
-	with tf.session() as sess:
-		sess.run(global_varibale_initializer)
+	with tf.Session() as sess:
+		sess.run(tf.global_variables_initializer())
 
 		step_num = 2000
 		for i in range(step_num):
-			batch = random.sample(train, 50) #without replacement, but how?
+			batch = random.sample(train_set, 50) #without replacement, but how?
+			batch_x = [entry.data for entry in batch]
+			batch_y = [entry.label for entry in batch]
 			
 			if i % 100 == 0:
-				train_accuracy = accuracy.eval(feed_dict={x: batch[0], y: batch[1]})
+				train_accuracy = accuracy.eval(feed_dict={x: batch_x, y: batch_y})
 				print('step ', i, 'training accuracy ', train_accuracy)
 
-			train_step.run(feed_dict={x: batch[0], y: batch[1]})
+			train_step.run(feed_dict={x: batch_x, y: batch_y})
 
 		print('test accuracy ', 'insert here' )
 main()
