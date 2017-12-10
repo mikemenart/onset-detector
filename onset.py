@@ -9,7 +9,7 @@ import math
 #0.05 seconds
 #44.1k sampling rate
 SAMP_RATE = 44100
-WIN_SIZE = 2205
+WIN_SIZE = 2206
 
 #label of form [1,0] for true or [0,1] for false
 Entry = namedtuple('Entry', ['data','label'])
@@ -45,11 +45,11 @@ def makeDataPairs(labels, audio):
 	data_pairs = []
 
 	def inBound(time, truth, truth_id):
+		win_time = WIN_SIZE/SAMP_RATE
 		return (truth_id < len(truth) 
-			and (time < truth[truth_id] < time+0.05)) 
+			and (time < truth[truth_id] < time+win_time)) 
 
 	for key in keys:
-		print(key)
 		data = audio[key]
 		truth = labels[key]
 
@@ -81,7 +81,7 @@ def conv1d(x, W):
 	return tf.nn.conv1d(x, W, 1, padding='SAME')
 
 def max_pool(x):
-	return tf.layers.max_pooling1d(x, 2, 1, padding='SAME')
+	return tf.layers.max_pooling1d(x, 2, 2, padding='SAME')
 
 def net(x):
 	CONV1_SIZE = 5
@@ -91,7 +91,6 @@ def net(x):
 	with tf.name_scope('reshape'):
 		x_window = tf.reshape(x, [-1, WIN_SIZE, 1]) #[t sample, t length, channels]
 
-	#should produce [-1, 1000, 32]
 	with tf.name_scope('conv1'):
 		w_conv1 = weight_variable([CONV1_SIZE, 1, NUM_FILTERS1]) 
 		b_conv1 = bias_variable([NUM_FILTERS1])
@@ -100,13 +99,12 @@ def net(x):
 	with tf.name_scope('pool1'):
 		o_pool1 = max_pool(o_conv1)
 
-	#dim shoud be [-1, 500, 32]
 	FC_SIZE = 64
 	with tf.name_scope('fc1'):
-		w_fc1 = weight_variable([WIN_POOL_SIZE, FC_SIZE])
+		w_fc1 = weight_variable([WIN_POOL_SIZE*NUM_FILTERS1, FC_SIZE])
 		b_fc1 = weight_variable([FC_SIZE])
 		#should be NUM_FILTERS vectors of length WIN_POOL_SIZE
-		o_pool_flat = tf.reshape(o_pool1, [-1, WIN_POOL_SIZE]) #remove conv deliniation and just make string of vectors
+		o_pool_flat = tf.reshape(o_pool1, [-1, WIN_POOL_SIZE*NUM_FILTERS1]) #remove conv deliniation and just make string of vectors
 		o_fc1 = tf.nn.relu(tf.matmul(o_pool_flat, w_fc1) + b_fc1)
 
 	#output layer
@@ -131,9 +129,8 @@ def output_layer(y, logits):
 		correctness = tf.cast(correctness, tf.float32)
 	accuracy = tf.reduce_mean(correctness)
 
+	train_step = 'temp'	
 	return (train_step, accuracy)
-
-
 	
 def main():
 	#671 good labels
@@ -156,6 +153,16 @@ def main():
 
 	logits = net(x)
 	train_step, accuracy = output_layer(y, logits)
+
+	with tf.Session().as_default() as sess:
+		sess.run(tf.global_variables_initializer())
+		batch = random.sample(train_set, 50) #without replacement, but how?
+		batch_x = [entry.data for entry in batch]
+		batch_y = [entry.label for entry in batch]
+		result = accuracy.eval(feed_dict={x: batch_x, y: batch_y})
+		print(result)
+
+	exit()
 
 	with tf.Session() as sess:
 		sess.run(tf.global_variables_initializer())
