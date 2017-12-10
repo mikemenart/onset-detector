@@ -17,7 +17,8 @@ Entry = namedtuple('Entry', ['data','label'])
 
 class Leveau:
 
-	def __init__(self):
+	def __init__(self, true_multiplier = 4):
+		self.true_mult = true_multiplier
 		self.audio = self.getAudio()
 		self.labels = self.getLabels()
 		self.data_pairs = self.makeDataPairs()
@@ -89,6 +90,7 @@ class Leveau:
 	def makeDataPairs(self):
 
 		def getWinData(data, pos):
+			pos = max(0, pos)
 			if(pos+WIN_SIZE < len(data)):
 				return data[pos:pos+WIN_SIZE]
 			else:
@@ -111,26 +113,22 @@ class Leveau:
 			data = self.audio[key]
 			truth = self.labels[key]
 
-			num_true = 0
-			truth_id = 0
-			total_samples = 0
+			#create negative samples
 			for pos in range(0, len(data), int(WIN_SIZE/2)):
-				total_samples += 1
-				if onsetInWindow(truth, pos):
-					entry = Entry(getWinData(data,pos), [1,0])
-					num_true += 1
-				else:
+				if not (onsetInWindow(truth, pos)):
 					entry = Entry(getWinData(data,pos), [0,1])
+					data_pairs.append(entry)
 
-				data_pairs.append(entry)
-				#print(num_true)
-				#print(total_samples)
-				#exit()
+			#create positive samples
+			for onset in truth:
+				pos = int(onset*SAMP_RATE)
+				for i in range(self.true_mult):
+					win_start = int(pos - WIN_SIZE*(i/self.true_mult)*0.8)
+					entry = Entry(getWinData(data, win_start), [1,0])
+					data_pairs.append(entry)
 
 		print("len datapairs ", len(data_pairs))
 		return data_pairs
-
-
 
 def weight_variable(shape):
 	initial = tf.truncated_normal(shape, stddev=0.1)
@@ -196,7 +194,7 @@ def output_layer(y, logits):
 	
 def main():
 	#671 good labels
-	data = Leveau()
+	data = Leveau(true_multiplier=8)
 	data.printStats()
 
 	x = tf.placeholder(tf.float32, [None, WIN_SIZE]) #None specifies arbitrary number of input windows
@@ -217,7 +215,7 @@ def main():
 	with tf.Session() as sess:
 		sess.run(tf.global_variables_initializer())
 
-		step_num = 500
+		step_num = 5000
 		for i in range(step_num):
 			batch_x, batch_y = data.getBatch('train', 50)
 			
