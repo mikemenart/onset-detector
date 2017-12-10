@@ -5,6 +5,7 @@ import os
 import tensorflow as tf
 import random
 import math
+import numpy as np
 
 #0.05 seconds
 #44.1k sampling rate
@@ -49,6 +50,12 @@ def makeDataPairs(labels, audio):
 		return (truth_id < len(truth) 
 			and (time < truth[truth_id] < time+win_time)) 
 
+	def getWinData(data, pos):
+		if(pos+WIN_SIZE < len(data)):
+			return data[pos:pos+WIN_SIZE]
+		else:
+			return np.append(data[pos:], np.zeros(WIN_SIZE-(len(data)-pos)))
+
 	for key in keys:
 		data = audio[key]
 		truth = labels[key]
@@ -57,11 +64,11 @@ def makeDataPairs(labels, audio):
 		for pos in range(0, len(data), WIN_SIZE):
 			time = pos/SAMP_RATE
 			if inBound(time, truth, truth_id):
-				entry = Entry(data[pos:pos+WIN_SIZE], [1,0])
+				entry = Entry(getWinData(data,pos), [1,0])
 				truth_id += 1
 				while(truth_id < len(truth) and truth[truth_id] < pos+WIN_SIZE): truth_id += 1
 			else:
-				entry = Entry(data[pos:pos+WIN_SIZE], [0,1])
+				entry = Entry(getWinData(data,pos), [0,1])
 
 			data_pairs.append(entry)
 
@@ -129,7 +136,6 @@ def output_layer(y, logits):
 		correctness = tf.cast(correctness, tf.float32)
 	accuracy = tf.reduce_mean(correctness)
 
-	train_step = 'temp'	
 	return (train_step, accuracy)
 	
 def main():
@@ -154,30 +160,31 @@ def main():
 	logits = net(x)
 	train_step, accuracy = output_layer(y, logits)
 
-	with tf.Session().as_default() as sess:
-		sess.run(tf.global_variables_initializer())
-		batch = random.sample(train_set, 50) #without replacement, but how?
-		batch_x = [entry.data for entry in batch]
-		batch_y = [entry.label for entry in batch]
-		result = accuracy.eval(feed_dict={x: batch_x, y: batch_y})
-		print(result)
-
-	exit()
+	# with tf.Session().as_default() as sess:
+	# 	sess.run(tf.global_variables_initializer())
+	# 	batch = random.sample(train_set, 50) #without replacement, but how?
+	# 	batch_x = [entry.data for entry in batch]
+	# 	batch_y = [entry.label for entry in batch]
+	# 	result = accuracy.eval(feed_dict={x: batch_x, y: batch_y})
+	# 	print(result)
+	# exit()
 
 	with tf.Session() as sess:
 		sess.run(tf.global_variables_initializer())
 
-		step_num = 2000
+		step_num = 50
 		for i in range(step_num):
 			batch = random.sample(train_set, 50) #without replacement, but how?
 			batch_x = [entry.data for entry in batch]
 			batch_y = [entry.label for entry in batch]
+			#print('x ', batch_x)
+			#print('y ', batch_y)
+			print(i)
 			
 			if i % 100 == 0:
 				train_accuracy = accuracy.eval(feed_dict={x: batch_x, y: batch_y})
 				print('step ', i, 'training accuracy ', train_accuracy)
 
 			train_step.run(feed_dict={x: batch_x, y: batch_y})
-
 		print('test accuracy ', 'insert here' )
 main()
