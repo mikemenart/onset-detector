@@ -47,6 +47,18 @@ class Leveau:
 		set_y = [entry.label for entry in data]
 		return (set_x, set_y)
 
+	def printStats(self):
+		y = [entry.label for entry in self.data_pairs]
+		num_true = 0
+
+		for entry in y:
+			if entry[0] == 1:
+				num_true += 1
+
+		print("num true ", num_true)
+		print("total ", len(y))
+		print("Percent True ", 100*num_true/len(y))
+
 
 	def getLabels(self):
 		label_path = 'Leveau\\goodlabels\\' 
@@ -75,13 +87,6 @@ class Leveau:
 		return dict(zip(names, audio))
 
 	def makeDataPairs(self):
-		keys = self.labels.keys()
-		data_pairs = []
-
-		def inBound(time, truth, truth_id):
-			win_time = WIN_SIZE/SAMP_RATE
-			return (truth_id < len(truth) 
-				and (time < truth[truth_id] < time+win_time)) 
 
 		def getWinData(data, pos):
 			if(pos+WIN_SIZE < len(data)):
@@ -89,22 +94,40 @@ class Leveau:
 			else:
 				return np.append(data[pos:], np.zeros(WIN_SIZE-(len(data)-pos)))
 
+		def onsetInWindow(labels, pos):
+			start_time = pos/SAMP_RATE
+			end_time = start_time + WIN_SIZE/SAMP_RATE
+
+			for label in labels:
+				if(start_time < label < end_time):
+					return True
+
+			return False
+
+		keys = self.labels.keys()
+		data_pairs = []
+
 		for key in keys:
 			data = self.audio[key]
 			truth = self.labels[key]
 
+			num_true = 0
 			truth_id = 0
-			for pos in range(0, len(data), WIN_SIZE):
-				time = pos/SAMP_RATE
-				if inBound(time, truth, truth_id):
+			total_samples = 0
+			for pos in range(0, len(data), int(WIN_SIZE/2)):
+				total_samples += 1
+				if onsetInWindow(truth, pos):
 					entry = Entry(getWinData(data,pos), [1,0])
-					truth_id += 1
-					while(truth_id < len(truth) and truth[truth_id] < pos+WIN_SIZE): truth_id += 1
+					num_true += 1
 				else:
 					entry = Entry(getWinData(data,pos), [0,1])
 
 				data_pairs.append(entry)
+				#print(num_true)
+				#print(total_samples)
+				#exit()
 
+		print("len datapairs ", len(data_pairs))
 		return data_pairs
 
 
@@ -174,7 +197,7 @@ def output_layer(y, logits):
 def main():
 	#671 good labels
 	data = Leveau()
-
+	data.printStats()
 
 	x = tf.placeholder(tf.float32, [None, WIN_SIZE]) #None specifies arbitrary number of input windows
 	y = tf.placeholder(tf.float32, [None, 2])
