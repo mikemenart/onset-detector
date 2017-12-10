@@ -15,64 +15,97 @@ WIN_SIZE = 2206
 #label of form [1,0] for true or [0,1] for false
 Entry = namedtuple('Entry', ['data','label'])
 
-def getLabels():
-	label_path = 'Leveau\\goodlabels\\' 
-	files = os.listdir(label_path)
-	#print(files)
-	onsets = []
+class Leveau:
 
-	for file in files:
-		mat = spio.loadmat(label_path+file, squeeze_me=True)
-		onsets.append(mat['labels_time'])
+	def __init__(self):
+		self.audio = self.getAudio()
+		self.labels = self.getLabels()
+		self.data_pairs = self.makeDataPairs()
+		random.shuffle(self.data_pairs)
 
-	names = [name.rstrip('.mat') for name in files]
-	return dict(zip(names, onsets))
+		#segment into train eval test
+		train_size = int(0.6*len(self.data_pairs))
+		eval_cutoff = int(0.8*len(self.data_pairs))
+		train_set = self.data_pairs[:train_size]
+		eval_set = self.data_pairs[train_size:eval_cutoff]
+		test_set = self.data_pairs[eval_cutoff:]
 
-def getAudio():
-	audio_path = 'Leveau\\sounds\\' 
-	files = os.listdir(audio_path)
-	#print(files)
-	audio = []
+		self.sets = {'train': train_set, 'eval': eval_set, 'test': test_set}
 
-	for file in files:
-		samp_rate, frames = spwav.read(audio_path+file)
-		audio.append(frames)
 
-	names = [name.rstrip('.wav') for name in files]
-	return dict(zip(names, audio))
+	def getBatch(self, set, size):
+		batch = random.sample(self.sets[set], size)
+		batch_x = [entry.data for entry in batch]
+		batch_y = [entry.label for entry in batch]
 
-def makeDataPairs(labels, audio):
-	keys = labels.keys()
-	data_pairs = []
+		return (batch_x, batch_y)
 
-	def inBound(time, truth, truth_id):
-		win_time = WIN_SIZE/SAMP_RATE
-		return (truth_id < len(truth) 
-			and (time < truth[truth_id] < time+win_time)) 
+	def getSet(self, set):
+		'''Set: String that is either 'train', 'eval', or 'test' '''
+		data = self.sets[set]
+		set_x = [entry.data for entry in data]
+		set_y = [entry.label for entry in data]
+		return (set_x, set_y)
 
-	def getWinData(data, pos):
-		if(pos+WIN_SIZE < len(data)):
-			return data[pos:pos+WIN_SIZE]
-		else:
-			return np.append(data[pos:], np.zeros(WIN_SIZE-(len(data)-pos)))
 
-	for key in keys:
-		data = audio[key]
-		truth = labels[key]
+	def getLabels(self):
+		label_path = 'Leveau\\goodlabels\\' 
+		files = os.listdir(label_path)
+		#print(files)
+		onsets = []
 
-		truth_id = 0
-		for pos in range(0, len(data), WIN_SIZE):
-			time = pos/SAMP_RATE
-			if inBound(time, truth, truth_id):
-				entry = Entry(getWinData(data,pos), [1,0])
-				truth_id += 1
-				while(truth_id < len(truth) and truth[truth_id] < pos+WIN_SIZE): truth_id += 1
+		for file in files:
+			mat = spio.loadmat(label_path+file, squeeze_me=True)
+			onsets.append(mat['labels_time'])
+
+		names = [name.rstrip('.mat') for name in files]
+		return dict(zip(names, onsets))
+
+	def getAudio(self):
+		audio_path = 'Leveau\\sounds\\' 
+		files = os.listdir(audio_path)
+		#print(files)
+		audio = []
+
+		for file in files:
+			samp_rate, frames = spwav.read(audio_path+file)
+			audio.append(frames)
+
+		names = [name.rstrip('.wav') for name in files]
+		return dict(zip(names, audio))
+
+	def makeDataPairs(self):
+		keys = self.labels.keys()
+		data_pairs = []
+
+		def inBound(time, truth, truth_id):
+			win_time = WIN_SIZE/SAMP_RATE
+			return (truth_id < len(truth) 
+				and (time < truth[truth_id] < time+win_time)) 
+
+		def getWinData(data, pos):
+			if(pos+WIN_SIZE < len(data)):
+				return data[pos:pos+WIN_SIZE]
 			else:
-				entry = Entry(getWinData(data,pos), [0,1])
+				return np.append(data[pos:], np.zeros(WIN_SIZE-(len(data)-pos)))
 
-			data_pairs.append(entry)
+		for key in keys:
+			data = self.audio[key]
+			truth = self.labels[key]
 
-	return data_pairs
+			truth_id = 0
+			for pos in range(0, len(data), WIN_SIZE):
+				time = pos/SAMP_RATE
+				if inBound(time, truth, truth_id):
+					entry = Entry(getWinData(data,pos), [1,0])
+					truth_id += 1
+					while(truth_id < len(truth) and truth[truth_id] < pos+WIN_SIZE): truth_id += 1
+				else:
+					entry = Entry(getWinData(data,pos), [0,1])
+
+				data_pairs.append(entry)
+
+		return data_pairs
 
 
 
@@ -140,19 +173,8 @@ def output_layer(y, logits):
 	
 def main():
 	#671 good labels
-	labels = getLabels()
-	audio = getAudio()
-	print(labels.keys())
-	data_pairs = makeDataPairs(labels, audio)
-	random.shuffle(data_pairs)
+	data = Leveau()
 
-	#segment into train eval test
-	#THESE ARE LISTS OF ENTRIES
-	train_size = int(0.6*len(data_pairs))
-	eval_cutoff = int(0.8*len(data_pairs))
-	train_set = data_pairs[:train_size]
-	eval_set = data_pairs[train_size:eval_cutoff]
-	test_set = data_pairs[eval_cutoff:]
 
 	x = tf.placeholder(tf.float32, [None, WIN_SIZE]) #None specifies arbitrary number of input windows
 	y = tf.placeholder(tf.float32, [None, 2])
@@ -172,19 +194,20 @@ def main():
 	with tf.Session() as sess:
 		sess.run(tf.global_variables_initializer())
 
-		step_num = 50
+		step_num = 500
 		for i in range(step_num):
-			batch = random.sample(train_set, 50) #without replacement, but how?
-			batch_x = [entry.data for entry in batch]
-			batch_y = [entry.label for entry in batch]
-			#print('x ', batch_x)
-			#print('y ', batch_y)
-			print(i)
+			batch_x, batch_y = data.getBatch('train', 50)
 			
 			if i % 100 == 0:
-				train_accuracy = accuracy.eval(feed_dict={x: batch_x, y: batch_y})
+				#evaluate on eval set
+				eval_x, eval_y = data.getSet('eval')
+				train_accuracy = accuracy.eval(feed_dict={x: eval_x, y: eval_y})
 				print('step ', i, 'training accuracy ', train_accuracy)
 
 			train_step.run(feed_dict={x: batch_x, y: batch_y})
-		print('test accuracy ', 'insert here' )
+
+		#evaluate on test set
+		test_x, test_y = data.getSet('test')	
+		test_accuracy = accuracy.eval(feed_dict={x: test_x, y: test_y})
+		print('test accuracy ', test_accuracy) 
 main()
