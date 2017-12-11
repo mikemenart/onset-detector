@@ -37,7 +37,7 @@ class Network:
 		with tf.name_scope('reshape'):
 			x_window = tf.reshape(self.x, [-1, WIN_SIZE, 1]) #[t sample, t length, channels]
 
-		CONV1_SIZE = 100
+		CONV1_SIZE = 441
 		NUM_FILTERS1 = 20
 		with tf.name_scope('conv1'):
 			w_conv1 = weight_variable([CONV1_SIZE, 1, NUM_FILTERS1]) 
@@ -49,7 +49,7 @@ class Network:
 		with tf.name_scope('pool1'):
 			o_pool1 = max_pool(o_conv1)
 
-		CONV2_SIZE = 100
+		CONV2_SIZE = 200
 		NUM_FILTERS2 = NUM_FILTERS1*2
 		with tf.name_scope('conv2'):
 			w_conv2 = weight_variable([CONV2_SIZE, NUM_FILTERS1, NUM_FILTERS2])
@@ -110,7 +110,7 @@ class Network:
 
 		return (train_step, accuracy)
 
-	def batchEval(self, data_x, data_y, keep_prob=1, batch_size=100):
+	def batchEval(self, data_x, data_y, keep_prob=1, batch_size=300):
 		num_samples = len(data_x)
 		accuracy = 0
 		for i in range(0, num_samples, batch_size):
