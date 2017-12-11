@@ -16,7 +16,6 @@ WIN_SIZE = 2206
 Entry = namedtuple('Entry', ['data','label'])
 
 class Leveau:
-
 	def __init__(self, true_multiplier = 4):
 		self.true_mult = true_multiplier
 		self.audio = self.getAudio()
@@ -32,7 +31,6 @@ class Leveau:
 		test_set = self.data_pairs[eval_cutoff:]
 
 		self.sets = {'train': train_set, 'eval': eval_set, 'test': test_set}
-
 
 	def getBatch(self, set, size):
 		batch = random.sample(self.sets[set], size)
@@ -59,7 +57,6 @@ class Leveau:
 		print("num true ", num_true)
 		print("total ", len(y))
 		print("Percent True ", 100*num_true/len(y))
-
 
 	def getLabels(self):
 		label_path = 'Leveau\\goodlabels\\' 
@@ -125,9 +122,12 @@ class Leveau:
 				for i in range(self.true_mult):
 					win_start = int(pos - WIN_SIZE*(i/self.true_mult)*0.8)
 					entry = Entry(getWinData(data, win_start), [1,0])
+
 					data_pairs.append(entry)
 
 		print("len datapairs ", len(data_pairs))
+		for pair in data_pairs:
+			assert(len(pair.data) == WIN_SIZE)
 		return data_pairs
 
 def weight_variable(shape):
@@ -145,27 +145,39 @@ def max_pool(x):
 	return tf.layers.max_pooling1d(x, 2, 2, padding='SAME')
 
 def net(x):
-	CONV1_SIZE = 5
-	NUM_FILTERS1 = 32
-	WIN_POOL_SIZE = math.ceil(WIN_SIZE/2)
-
 	with tf.name_scope('reshape'):
 		x_window = tf.reshape(x, [-1, WIN_SIZE, 1]) #[t sample, t length, channels]
 
+	CONV1_SIZE = 100
+	NUM_FILTERS1 = 16
 	with tf.name_scope('conv1'):
 		w_conv1 = weight_variable([CONV1_SIZE, 1, NUM_FILTERS1]) 
 		b_conv1 = bias_variable([NUM_FILTERS1])
 		o_conv1 = tf.nn.relu(conv1d(x_window, w_conv1) + b_conv1)
+		#o_conv1->[batch, win_size, filter_num]
 
+	WIN_POOL1_SIZE = math.ceil(WIN_SIZE/2)
 	with tf.name_scope('pool1'):
 		o_pool1 = max_pool(o_conv1)
+#		o_pool1_flat = tf.reshape(o_pool1, [-1, NUM_FILTERS1*WIN_POOL1_SIZE, 1])
+
+	CONV2_SIZE = 50
+	NUM_FILTERS2 = NUM_FILTERS1*2
+	with tf.name_scope('conv2'):
+		w_conv2 = weight_variable([5, NUM_FILTERS1, NUM_FILTERS2])
+		b_conv2 = bias_variable([NUM_FILTERS2])
+		o_conv2 = tf.nn.relu(conv1d(o_pool1, w_conv2) + b_conv2)
+
+	WIN_POOL2_SIZE = math.ceil(WIN_POOL1_SIZE/2)
+	with tf.name_scope('pool2'):
+		o_pool2 = max_pool(o_conv2)
+		#remove conv deliniation and just make string of vectors	
+		o_pool_flat = tf.reshape(o_pool2, [-1, WIN_POOL2_SIZE*NUM_FILTERS2])
 
 	FC_SIZE = 64
 	with tf.name_scope('fc1'):
-		w_fc1 = weight_variable([WIN_POOL_SIZE*NUM_FILTERS1, FC_SIZE])
+		w_fc1 = weight_variable([WIN_POOL2_SIZE*NUM_FILTERS2, FC_SIZE])
 		b_fc1 = weight_variable([FC_SIZE])
-		#should be NUM_FILTERS vectors of length WIN_POOL_SIZE
-		o_pool_flat = tf.reshape(o_pool1, [-1, WIN_POOL_SIZE*NUM_FILTERS1]) #remove conv deliniation and just make string of vectors
 		o_fc1 = tf.nn.relu(tf.matmul(o_pool_flat, w_fc1) + b_fc1)
 
 	#output layer
@@ -183,7 +195,7 @@ def output_layer(y, logits):
 	cross_entropy = tf.reduce_mean(cross_entropy)
 
 	with tf.name_scope('optimizer'):
-		train_step = tf.train.AdamOptimizer(0.01).minimize(cross_entropy)
+		train_step = tf.train.AdamOptimizer(0.0001).minimize(cross_entropy)
 
 	with tf.name_scope('accuracy'):
 		correctness = tf.equal(tf.argmax(logits, 1), tf.argmax(y, 1)) 
@@ -205,17 +217,15 @@ def main():
 
 	# with tf.Session().as_default() as sess:
 	# 	sess.run(tf.global_variables_initializer())
-	# 	batch = random.sample(train_set, 50) #without replacement, but how?
-	# 	batch_x = [entry.data for entry in batch]
-	# 	batch_y = [entry.label for entry in batch]
+	# 	batch_x, batch_y = data.getBatch('train', 50)
 	# 	result = accuracy.eval(feed_dict={x: batch_x, y: batch_y})
-	# 	print(result)
+	# 	print(result.shape)
 	# exit()
 
 	with tf.Session() as sess:
 		sess.run(tf.global_variables_initializer())
 
-		step_num = 5000
+		step_num = 20000
 		for i in range(step_num):
 			batch_x, batch_y = data.getBatch('train', 50)
 			
