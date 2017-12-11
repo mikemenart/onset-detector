@@ -1,134 +1,13 @@
-import scipy.io as spio
-import scipy.io.wavfile as spwav
-from collections import namedtuple
-import os
 import tensorflow as tf
 import random
 import math
-import numpy as np
+from Leveau import Leveau
 
 #0.05 seconds
 #44.1k sampling rate
 SAMP_RATE = 44100
 WIN_SIZE = 2206
 
-#label of form [1,0] for true or [0,1] for false
-Entry = namedtuple('Entry', ['data','label'])
-
-class Leveau:
-	def __init__(self, true_multiplier = 4):
-		self.true_mult = true_multiplier
-		self.audio = self.getAudio()
-		self.labels = self.getLabels()
-		self.data_pairs = self.makeDataPairs()
-		random.shuffle(self.data_pairs)
-
-		#segment into train eval test
-		train_size = int(0.6*len(self.data_pairs))
-		eval_cutoff = int(0.8*len(self.data_pairs))
-		train_set = self.data_pairs[:train_size]
-		eval_set = self.data_pairs[train_size:eval_cutoff]
-		test_set = self.data_pairs[eval_cutoff:]
-
-		self.sets = {'train': train_set, 'eval': eval_set, 'test': test_set}
-
-	def getBatch(self, set, size):
-		batch = random.sample(self.sets[set], size)
-		batch_x = [entry.data for entry in batch]
-		batch_y = [entry.label for entry in batch]
-
-		return (batch_x, batch_y)
-
-	def getSet(self, set):
-		'''Set: String that is either 'train', 'eval', or 'test' '''
-		data = self.sets[set]
-		set_x = [entry.data for entry in data]
-		set_y = [entry.label for entry in data]
-		return (set_x, set_y)
-
-	def printStats(self):
-		y = [entry.label for entry in self.data_pairs]
-		num_true = 0
-
-		for entry in y:
-			if entry[0] == 1:
-				num_true += 1
-
-		print("num true ", num_true)
-		print("total ", len(y))
-		print("Percent True ", 100*num_true/len(y))
-
-	def getLabels(self):
-		label_path = 'Leveau\\goodlabels\\' 
-		files = os.listdir(label_path)
-		#print(files)
-		onsets = []
-
-		for file in files:
-			mat = spio.loadmat(label_path+file, squeeze_me=True)
-			onsets.append(mat['labels_time'])
-
-		names = [name.rstrip('.mat') for name in files]
-		return dict(zip(names, onsets))
-
-	def getAudio(self):
-		audio_path = 'Leveau\\sounds\\' 
-		files = os.listdir(audio_path)
-		#print(files)
-		audio = []
-
-		for file in files:
-			samp_rate, frames = spwav.read(audio_path+file)
-			audio.append(frames)
-
-		names = [name.rstrip('.wav') for name in files]
-		return dict(zip(names, audio))
-
-	def makeDataPairs(self):
-
-		def getWinData(data, pos):
-			pos = max(0, pos)
-			if(pos+WIN_SIZE < len(data)):
-				return data[pos:pos+WIN_SIZE]
-			else:
-				return np.append(data[pos:], np.zeros(WIN_SIZE-(len(data)-pos)))
-
-		def onsetInWindow(labels, pos):
-			start_time = pos/SAMP_RATE
-			end_time = start_time + WIN_SIZE/SAMP_RATE
-
-			for label in labels:
-				if(start_time < label < end_time):
-					return True
-
-			return False
-
-		keys = self.labels.keys()
-		data_pairs = []
-
-		for key in keys:
-			data = self.audio[key]
-			truth = self.labels[key]
-
-			#create negative samples
-			for pos in range(0, len(data), int(WIN_SIZE/2)):
-				if not (onsetInWindow(truth, pos)):
-					entry = Entry(getWinData(data,pos), [0,1])
-					data_pairs.append(entry)
-
-			#create positive samples
-			for onset in truth:
-				pos = int(onset*SAMP_RATE)
-				for i in range(self.true_mult):
-					win_start = int(pos - WIN_SIZE*(i/self.true_mult)*0.8)
-					entry = Entry(getWinData(data, win_start), [1,0])
-
-					data_pairs.append(entry)
-
-		print("len datapairs ", len(data_pairs))
-		for pair in data_pairs:
-			assert(len(pair.data) == WIN_SIZE)
-		return data_pairs
 
 def weight_variable(shape):
 	initial = tf.truncated_normal(shape, stddev=0.1)
@@ -149,7 +28,7 @@ def net(x):
 		x_window = tf.reshape(x, [-1, WIN_SIZE, 1]) #[t sample, t length, channels]
 
 	CONV1_SIZE = 100
-	NUM_FILTERS1 = 16
+	NUM_FILTERS1 = 20
 	with tf.name_scope('conv1'):
 		w_conv1 = weight_variable([CONV1_SIZE, 1, NUM_FILTERS1]) 
 		b_conv1 = bias_variable([NUM_FILTERS1])
@@ -159,34 +38,51 @@ def net(x):
 	WIN_POOL1_SIZE = math.ceil(WIN_SIZE/2)
 	with tf.name_scope('pool1'):
 		o_pool1 = max_pool(o_conv1)
-#		o_pool1_flat = tf.reshape(o_pool1, [-1, NUM_FILTERS1*WIN_POOL1_SIZE, 1])
 
 	CONV2_SIZE = 50
 	NUM_FILTERS2 = NUM_FILTERS1*2
 	with tf.name_scope('conv2'):
-		w_conv2 = weight_variable([5, NUM_FILTERS1, NUM_FILTERS2])
+		w_conv2 = weight_variable([CONV2_SIZE, NUM_FILTERS1, NUM_FILTERS2])
 		b_conv2 = bias_variable([NUM_FILTERS2])
 		o_conv2 = tf.nn.relu(conv1d(o_pool1, w_conv2) + b_conv2)
 
 	WIN_POOL2_SIZE = math.ceil(WIN_POOL1_SIZE/2)
 	with tf.name_scope('pool2'):
 		o_pool2 = max_pool(o_conv2)
-		#remove conv deliniation and just make string of vectors	
-		o_pool_flat = tf.reshape(o_pool2, [-1, WIN_POOL2_SIZE*NUM_FILTERS2])
+
+	CONV3_SIZE = 20
+	NUM_FILTERS3 = NUM_FILTERS2
+	with tf.name_scope('conv3'):
+		w_conv3 = weight_variable([CONV3_SIZE, NUM_FILTERS2, NUM_FILTERS3])
+		b_conv3 = bias_variable([NUM_FILTERS3])
+		o_conv3 = tf.nn.relu(conv1d(o_pool2, w_conv3) + b_conv3)
+
+	CONV4_SIZE = 5
+	NUM_FILTERS4 = NUM_FILTERS3
+	with tf.name_scope('conv4'):
+		w_conv4 = weight_variable([CONV3_SIZE, NUM_FILTERS3, NUM_FILTERS4])
+		b_conv4 = bias_variable([NUM_FILTERS4])
+		o_conv4 = tf.nn.relu(conv1d(o_conv3, w_conv4) + b_conv3)
 
 	FC_SIZE = 64
 	with tf.name_scope('fc1'):
+		#remove conv deliniation and just make string of vectors	
+		o_conv_flat = tf.reshape(o_conv4, [-1, WIN_POOL2_SIZE*NUM_FILTERS4])
+
 		w_fc1 = weight_variable([WIN_POOL2_SIZE*NUM_FILTERS2, FC_SIZE])
 		b_fc1 = weight_variable([FC_SIZE])
-		o_fc1 = tf.nn.relu(tf.matmul(o_pool_flat, w_fc1) + b_fc1)
+		o_fc1 = tf.nn.relu(tf.matmul(o_conv_flat, w_fc1) + b_fc1)
 
-	#output layer
+	with tf.name_scope('dropout'):
+		keep_prob = tf.placeholder(tf.float32)
+		o_fc1_drop = tf.nn.dropout(o_fc1, keep_prob)
+	
 	with tf.name_scope('fc2'):
 		w_fc2 = weight_variable([FC_SIZE, 2])
 		b_fc2 = weight_variable([2])
-		logits = tf.matmul(o_fc1, w_fc2) + b_fc2
+		logits = tf.matmul(o_fc1_drop, w_fc2) + b_fc2
 
-	return logits
+	return (logits, keep_prob)
 
 def output_layer(y, logits):
 	with tf.name_scope('loss'):
@@ -206,19 +102,18 @@ def output_layer(y, logits):
 	
 def main():
 	#671 good labels
-	data = Leveau(true_multiplier=8)
+	data = Leveau(true_multiplier=5)
 	data.printStats()
-
 	x = tf.placeholder(tf.float32, [None, WIN_SIZE]) #None specifies arbitrary number of input windows
 	y = tf.placeholder(tf.float32, [None, 2])
 
-	logits = net(x)
+	logits, keep_prob = net(x)
 	train_step, accuracy = output_layer(y, logits)
 
 	# with tf.Session().as_default() as sess:
 	# 	sess.run(tf.global_variables_initializer())
 	# 	batch_x, batch_y = data.getBatch('train', 50)
-	# 	result = accuracy.eval(feed_dict={x: batch_x, y: batch_y})
+	# 	result = accuracy.eval(feed_dict={x: batch_x, y: batch_y, keep_prob: 0.5})
 	# 	print(result.shape)
 	# exit()
 
@@ -232,13 +127,13 @@ def main():
 			if i % 100 == 0:
 				#evaluate on eval set
 				eval_x, eval_y = data.getSet('eval')
-				train_accuracy = accuracy.eval(feed_dict={x: eval_x, y: eval_y})
+				train_accuracy = accuracy.eval(feed_dict={x: eval_x, y: eval_y, keep_prob: 1})
 				print('step ', i, 'training accuracy ', train_accuracy)
 
-			train_step.run(feed_dict={x: batch_x, y: batch_y})
+			train_step.run(feed_dict={x: batch_x, y: batch_y, keep_prob: 0.5})
 
 		#evaluate on test set
 		test_x, test_y = data.getSet('test')	
-		test_accuracy = accuracy.eval(feed_dict={x: test_x, y: test_y})
+		test_accuracy = accuracy.eval(feed_dict={x: test_x, y: test_y, keep_prob: 1})
 		print('test accuracy ', test_accuracy) 
 main()
