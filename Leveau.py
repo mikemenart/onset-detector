@@ -7,7 +7,7 @@ import random
 
 #0.05 seconds
 #44.1k sampling rate
-SAMP_RATE = 44100
+SAMP_RATE = 44100/2
 WIN_SIZE = 2206
 
 #label of form [1,0] for true or [0,1] for false
@@ -22,13 +22,14 @@ class Leveau:
 		random.shuffle(self.data_pairs)
 
 		#segment into train eval test
-		train_size = int(0.6*len(self.data_pairs))
-		eval_cutoff = int(0.8*len(self.data_pairs))
+		train_size = int(0.8*len(self.data_pairs))
+		eval_cutoff = int(1*len(self.data_pairs))
 		train_set = self.data_pairs[:train_size]
 		eval_set = self.data_pairs[train_size:eval_cutoff]
 		test_set = self.data_pairs[eval_cutoff:]
 
 		self.sets = {'train': train_set, 'eval': eval_set, 'test': test_set}
+		self.augmentData()
 
 	def getBatch(self, set, size):
 		batch = random.sample(self.sets[set], size)
@@ -77,7 +78,11 @@ class Leveau:
 		audio = []
 
 		for file in files:
-			samp_rate, frames = spwav.read(audio_path+file)
+			_, frames = spwav.read(audio_path+file)
+			#downsample audio
+			frames = frames[::2] 
+			#normalize between -10 and 10
+			frames = np.divide(frames, max(abs(frames)))
 			audio.append(frames)
 
 		names = [name.rstrip('.wav') for name in files]
@@ -128,3 +133,31 @@ class Leveau:
 		for pair in data_pairs:
 			assert(len(pair.data) == WIN_SIZE)
 		return data_pairs
+
+	#double training set with random sine waves added to training samples
+	def augmentData(self):
+		def addSines(freqs, i):
+			total = 0
+			for freq in freqs:
+				w = 2*np.pi*freq
+				A = random.randint(1,15)/100
+				total += A*np.sin(w*i)
+			return total
+		
+		print('Generating augmentations')	
+		count = 0
+		len_train = len(self.sets['train'])
+		for i in range(len_train):
+			pair = self.sets['train'][i]
+			if(count%1000 == 0):
+				print(count)
+			count += 1
+			freqs = [random.randint(55, 2046) for x in range(10)]
+			aug_data = list(pair.data)
+			for i in range(0, len(aug_data)):
+				aug_data[i] += addSines(freqs,i)
+
+			aug_data = np.divide(aug_data, max(max(aug_data), abs(min(aug_data))))
+			aug_entry = Entry(aug_data, pair.label)
+			self.sets['train'].append(aug_entry)
+		print('Done augmenting')
