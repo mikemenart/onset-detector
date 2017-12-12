@@ -81,8 +81,6 @@ class Leveau:
 			_, frames = spwav.read(audio_path+file)
 			#downsample audio
 			frames = frames[::2] 
-			#normalize between -10 and 10
-			frames = np.divide(frames, max(abs(frames)))
 			audio.append(frames)
 
 		names = [name.rstrip('.wav') for name in files]
@@ -93,9 +91,12 @@ class Leveau:
 		def getWinData(data, pos):
 			pos = max(0, pos)
 			if(pos+WIN_SIZE < len(data)):
-				return data[pos:pos+WIN_SIZE]
+				window = data[pos:pos+WIN_SIZE]
 			else:
-				return np.append(data[pos:], np.zeros(WIN_SIZE-(len(data)-pos)))
+				window = np.append(data[pos:], np.zeros(WIN_SIZE-(len(data)-pos)))
+
+			#normalize				
+			return np.divide(window, max(abs(window)))
 
 		def onsetInWindow(labels, pos):
 			start_time = pos/SAMP_RATE
@@ -157,7 +158,7 @@ class Leveau:
 			for i in range(0, len(aug_data)):
 				aug_data[i] += addSines(freqs,i)
 
-			aug_data = np.divide(aug_data, max(max(aug_data), abs(min(aug_data))))
+			aug_data = np.divide(aug_data, max(np.absolute(aug_data)))
 			aug_entry = Entry(aug_data, pair.label)
 			self.sets['train'].append(aug_entry)
 		print('Done augmenting')

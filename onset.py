@@ -13,7 +13,7 @@ class Network:
 		self.x = tf.placeholder(tf.float32, [None, WIN_SIZE]) #None specifies arbitrary number of input windows
 		self.y = tf.placeholder(tf.float32, [None, 2])
 
-		self.logits, self.keep_prob = self.net_body()
+		self.logits, self.keep_prob, self.keep_prob_conv = self.net_body()
 		self.train_step, self.accuracy, self.loss = self.output_layer()
 
 		self.summary_writer = tf.summary.FileWriter('log/', graph=tf.get_default_graph())
@@ -44,16 +44,21 @@ class Network:
 			return tf.nn.batch_normalization(x, batch_mean, batch_var, beta, scale, 1e-3)
 
 		###Network Body###
+		keep_prob_conv = tf.placeholder(tf.float32)
+
 		with tf.name_scope('reshape'):
 			x_window = tf.reshape(self.x, [-1, WIN_SIZE, 1]) #[t sample, t length, channels]
 
-		CONV1_SIZE = 220 #882 #441
-		NUM_FILTERS1 = 8
+		CONV1_SIZE = 220 #220 #882 #441
+		NUM_FILTERS1 = 4
 		with tf.name_scope('conv1'):
 			w_conv1 = weight_variable([CONV1_SIZE, 1, NUM_FILTERS1]) 
 			b_conv1 = bias_variable([NUM_FILTERS1])
 			o_conv1 = tf.nn.relu(conv1d(x_window, w_conv1) + b_conv1)
 			#o_conv1->[batch, win_size, filter_num]
+
+		with tf.name_scope('dropout_conv1'):
+			o_conv1_drop = tf.nn.dropout(o_conv1, keep_prob_conv*1.2)
 
 		WIN_POOL1_SIZE = math.ceil(WIN_SIZE/2)
 		with tf.name_scope('pool1'):
@@ -63,29 +68,36 @@ class Network:
 		# 	o_batch1 = batch_norm(o_pool1, WIN_POOL1_SIZE, NUM_FILTERS1)
 
 		CONV2_SIZE = 220 #882 #22 #200
-		NUM_FILTERS2 = NUM_FILTERS1
+		NUM_FILTERS2 = NUM_FILTERS1*2
 		with tf.name_scope('conv2'):
 			w_conv2 = weight_variable([CONV2_SIZE, NUM_FILTERS1, NUM_FILTERS2])
 			b_conv2 = bias_variable([NUM_FILTERS2])
 			o_conv2 = tf.nn.relu(conv1d(o_pool1, w_conv2) + b_conv2)
 
+		with tf.name_scope('dropout_conv2'):
+			o_conv2_drop = tf.nn.dropout(o_conv2, keep_prob_conv*1.1)
+
 		WIN_POOL2_SIZE = math.ceil(WIN_POOL1_SIZE/2)
 		with tf.name_scope('pool2'):
-			o_pool2 = max_pool(o_conv2)
+			o_pool2 = max_pool(o_conv2_drop)
 
 		# with tf.name_scope('batch_norm2'):
 		# 	o_batch2 = batch_norm(o_pool2, WIN_POOL2_SIZE, NUM_FILTERS2)
 
-		# CONV3_SIZE = 882 #11 #20
-		# NUM_FILTERS3 = NUM_FILTERS2
-		# with tf.name_scope('conv3'):
-		# 	w_conv3 = weight_variable([CONV3_SIZE, NUM_FILTERS2, NUM_FILTERS3])
-		# 	b_conv3 = bias_variable([NUM_FILTERS3])
-		# 	o_conv3 = tf.nn.relu(conv1d(o_batch2, w_conv3) + b_conv3)
+		CONV3_SIZE = 220 #11 #20
+		NUM_FILTERS3 = NUM_FILTERS2
+		with tf.name_scope('conv3'):
+			w_conv3 = weight_variable([CONV3_SIZE, NUM_FILTERS2, NUM_FILTERS3])
+			b_conv3 = bias_variable([NUM_FILTERS3])
+			o_conv3 = tf.nn.relu(conv1d(o_pool2, w_conv3) + b_conv3)
 
-		# WIN_POOL3_SIZE = math.ceil(WIN_POOL2_SIZE/2)
-		# with tf.name_scope('pool3'):
-		# 	o_pool3 = max_pool(o_conv3)
+		with tf.name_scope('dropout_conv3'):
+			o_conv3_drop = tf.nn.dropout(o_conv3, keep_prob_conv)
+
+		WIN_POOL3_SIZE = math.ceil(WIN_POOL2_SIZE/2)
+		with tf.name_scope('pool3'):
+			o_pool3 = max_pool(o_conv3_drop)
+
 
 		# with tf.name_scope('batch3'):
 		# 	o_batch3 = batch_norm(o_pool3, WIN_POOL3_SIZE, NUM_FILTERS3)
@@ -95,16 +107,17 @@ class Network:
 		# 	w_conv4 = weight_variable([CONV3_SIZE, NUM_FILTERS3, NUM_FILTERS4])
 		# 	b_conv4 = bias_variable([NUM_FILTERS4])
 		# 	o_conv4 = tf.nn.relu(conv1d(o_conv3, w_conv4) + b_conv3)
-		FC_SIZE = 64
+
+		FC_SIZE = 32
 		with tf.name_scope('fc1'):
 			#remove conv deliniation and just make string of vectors	
-			o_pool_flat = tf.reshape(o_pool2, [-1, WIN_POOL2_SIZE*NUM_FILTERS2])
+			o_pool_flat = tf.reshape(o_pool3, [-1, WIN_POOL3_SIZE*NUM_FILTERS3])
 
-			w_fc1 = weight_variable([WIN_POOL2_SIZE*NUM_FILTERS2, FC_SIZE])
+			w_fc1 = weight_variable([WIN_POOL3_SIZE*NUM_FILTERS3, FC_SIZE])
 			b_fc1 = weight_variable([FC_SIZE])
 			o_fc1 = tf.nn.relu(tf.matmul(o_pool_flat, w_fc1) + b_fc1)
 
-		with tf.name_scope('dropout'):
+		with tf.name_scope('dropout_fc'):
 			keep_prob = tf.placeholder(tf.float32)
 			o_fc1_drop = tf.nn.dropout(o_fc1, keep_prob)
 		
@@ -113,7 +126,7 @@ class Network:
 			b_fc2 = weight_variable([2])
 			logits = tf.matmul(o_fc1_drop, w_fc2) + b_fc2
 
-		return (logits, keep_prob)
+		return (logits, keep_prob, keep_prob_conv)
 
 	def output_layer(self):
 		with tf.name_scope('loss'):
@@ -131,7 +144,7 @@ class Network:
 
 		return (train_step, accuracy, cross_entropy)
 
-	def batchEval(self, data_x, data_y, keep_prob=1, batch_size=256):
+	def batchEval(self, data_x, data_y, keep_prob=1, keep_prob_conv=1, batch_size=256):
 		num_samples = len(data_x)
 		accuracy = 0
 		for i in range(0, num_samples, batch_size):
@@ -139,14 +152,19 @@ class Network:
 			accuracy +=  self.accuracy.eval(feed_dict={
 				self.x: data_x[i:batch_end], 
 				self.y: data_y[i:batch_end], 
-				self.keep_prob: keep_prob})
+				self.keep_prob: keep_prob,
+				self.keep_prob_conv: keep_prob_conv})
 
 		num_batches = math.ceil(num_samples/batch_size)	
 		accuracy /= num_batches
 		return accuracy
 
-	def trainStep(self, batch_x, batch_y, keep_prob=0.5):
-		self.train_step.run(feed_dict={self.x: batch_x, self.y: batch_y, self.keep_prob: 0.5})
+	def trainStep(self, batch_x, batch_y, keep_prob=0.5, keep_prob_conv=0.7):
+		self.train_step.run(feed_dict={
+			self.x: batch_x, 
+			self.y: batch_y, 
+			self.keep_prob: keep_prob, 
+			self.keep_prob_conv: keep_prob_conv})
 
 
 #DATALABELS ARENT NECCESARILY ALL ONSETS, INVALIDATES DATA CREATION	
@@ -171,9 +189,9 @@ def main():
 
 		max_eval = 0
 		max_train = 0
-		step_num = 4000
+		step_num = 20000
 		for i in range(step_num):
-			batch_x, batch_y = data.getBatch('train', 256)
+			batch_x, batch_y = data.getBatch('train', 128)
 			
 			if i % 100 == 0:
 				#evaluate on eval set
@@ -186,7 +204,7 @@ def main():
 				#net.summary_writer.add_summary(summary, i)
 				print('step ', i, 'eval accuracy ', eval_accuracy)
 
-			net.trainStep(batch_x, batch_y, keep_prob=0.5)
+			net.trainStep(batch_x, batch_y, keep_prob=0.48, keep_prob_conv=0.54)
 
 		print("Maximum eval accuracy ", max_eval)
 		print("Maximum train accuracy ", max_train)
