@@ -29,7 +29,7 @@ class Leveau:
 		test_set = self.data_pairs[eval_cutoff:]
 
 		self.sets = {'train': train_set, 'eval': eval_set, 'test': test_set}
-		self.augmentData()
+		#self.augmentData()
 
 	def getBatch(self, set, size):
 		batch = random.sample(self.sets[set], size)
@@ -98,31 +98,36 @@ class Leveau:
 			#normalize				
 			return np.divide(window, max(abs(window)))
 
-		def onsetInWindow(labels, pos):
-			start_time = pos/SAMP_RATE
-			end_time = start_time + WIN_SIZE/SAMP_RATE
+		def sampleAt(time):
+			return int(time*SAMP_RATE)
 
-			for label in labels:
-				if(start_time < label < end_time):
-					return True
-
-			return False
-
+		###Function Body###
 		keys = self.labels.keys()
 		data_pairs = []
 
 		for key in keys:
 			data = self.audio[key]
-			truth = self.labels[key]
+			truth = [sampleAt(x) for x in self.labels[key]]
 
 			#create negative samples
-			for pos in range(0, len(data), int(WIN_SIZE/2)):
-				if not (onsetInWindow(truth, pos)):
+			#increment pos, check if truth id < win_end. Increment truth_id until truth[truth_id] > win_end
+			truth_id = 0
+			step_size = int(WIN_SIZE/2)
+			for pos in range(0, len(data), step_size):
+				#check if onset in window
+				if(pos <= truth[truth_id] <= pos + WIN_SIZE): 
+					#move past label if in step_size
+					while(pos <= truth[truth_id] < pos + step_size): 
+						if(truth_id >= len(truth)-1):
+							break
+						else:
+							truth_id += 1
+				else:
 					entry = Entry(getWinData(data,pos), [0,1])
 					data_pairs.append(entry)
 
 			#create positive samples
-			for onset in truth:
+			for onset in self.labels[key]:
 				pos = int(onset*SAMP_RATE)
 				for i in range(self.true_mult):
 					win_start = int(pos - WIN_SIZE*(i/self.true_mult)*0.8)
@@ -133,6 +138,7 @@ class Leveau:
 		print("len datapairs ", len(data_pairs))
 		for pair in data_pairs:
 			assert(len(pair.data) == WIN_SIZE)
+		print("done making data pairs")
 		return data_pairs
 
 	#double training set with random sine waves added to training samples
