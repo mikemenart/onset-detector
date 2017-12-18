@@ -57,8 +57,8 @@ class Network:
 			o_conv1 = tf.nn.relu(conv1d(x_window, w_conv1) + b_conv1)
 			#o_conv1->[batch, win_size, filter_num]
 
-		with tf.name_scope('dropout_conv1'):
-			o_conv1_drop = tf.nn.dropout(o_conv1, keep_prob_conv*1.2)
+		# with tf.name_scope('dropout_conv1'):
+		# 	o_conv1_drop = tf.nn.dropout(o_conv1, keep_prob_conv*1.2)
 
 		WIN_POOL1_SIZE = math.ceil(WIN_SIZE/2)
 		with tf.name_scope('pool1'):
