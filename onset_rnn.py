@@ -16,7 +16,7 @@ class Network:
 		self.logits, self.keep_prob, self.keep_prob_conv = self.net_body()
 		self.train_step, self.accuracy, self.loss = self.output_layer()
 
-		self.summary_writer = tf.summary.FileWriter('log/', graph=tf.get_default_graph())
+		self.summary_writer = tf.summary.FileWriter('Report/log/', graph=tf.get_default_graph())
 		tf.summary.scalar("Loss", self.loss)
 		tf.summary.scalar("accuracy", self.accuracy)
 		self.merged = tf.summary.merge_all()
@@ -169,7 +169,7 @@ class Network:
 
 #DATALABELS ARENT NECCESARILY ALL ONSETS, INVALIDATES DATA CREATION	
 def main():
-	data = Leveau(true_multiplier=2)
+	data = Leveau()
 	data.printStats()
 
 	net = Network()	
@@ -189,8 +189,8 @@ def main():
 
 		max_eval = 0
 		max_train = 0
-		step_num = 20000
-		for i in range(step_num):
+		epochs = 2
+		for e in range(epochs):
 			batch_x, batch_y = data.getBatch('train', 128)
 			
 			if i % 100 == 0:

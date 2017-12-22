@@ -13,34 +13,24 @@ WIN_SIZE = 2206
 #label of form [1,0] for true or [0,1] for false
 Entry = namedtuple('Entry', ['data','label'])
 
-def arrayPortion(array, percent,fromFront=True):
-	divide = int(len(array)*percent)
-	if fromFront:
-		return array[:divide]
-	else:
-		return array[divide:] 
-
 class Leveau:
-	def __init__(self):
+	def __init__(self, true_multiplier = 4):
 		self.true_mult = true_multiplier
 		self.audio = self.getAudio()
 		self.labels = self.getLabels()
 		self.data_pairs = self.makeDataPairs()
-		#random.shuffle(self.data_pairs)
+		random.shuffle(self.data_pairs)
 
 		#segment into train eval test
 		train_size = int(0.8*len(self.data_pairs))
 		eval_cutoff = int(1*len(self.data_pairs))
-		train_set = [arrayPortion(x, 0.8) for x in self.data_pairs]
-		eval_set = [arrayPortion(x, 0.8, False) for x in self.data_pairs]
-		#test_set = self.data_pairs[eval_cutoff:]
+		train_set = self.data_pairs[:train_size]
+		eval_set = self.data_pairs[train_size:eval_cutoff]
+		test_set = self.data_pairs[eval_cutoff:]
 
 		self.sets = {'train': train_set, 'eval': eval_set, 'test': test_set}
-		self.batch_loc = 0
 		#self.augmentData()
 
-#DECIDE HOW TO SEND BATCHES OFF
-#PROBABLY SPLIT PAIRS INTO BATCH_NUM ADJACENT ARRAYS FOR EACH AUDIO FILE
 	def getBatch(self, set, size):
 		batch = random.sample(self.sets[set], size)
 		batch_x = [entry.data for entry in batch]
@@ -51,7 +41,9 @@ class Leveau:
 	def getSet(self, set):
 		'''Set: String that is either 'train', 'eval', or 'test' '''
 		data = self.sets[set]
-		return data
+		set_x = [entry.data for entry in data]
+		set_y = [entry.label for entry in data]
+		return (set_x, set_y)
 
 	def printStats(self):
 		y = [entry.label for entry in self.data_pairs]
@@ -114,18 +106,16 @@ class Leveau:
 		data_pairs = []
 
 		for key in keys:
-			key_pairs = []
 			data = self.audio[key]
 			truth = [sampleAt(x) for x in self.labels[key]]
 
+			#create negative samples
 			#increment pos, check if truth id < win_end. Increment truth_id until truth[truth_id] > win_end
 			truth_id = 0
-			step_size = WIN_SIZE
+			step_size = int(WIN_SIZE/2)
 			for pos in range(0, len(data), step_size):
 				#check if onset in window
 				if(pos <= truth[truth_id] <= pos + WIN_SIZE): 
-					entry = Entry(getWinData(data, win_start), [1,0])
-
 					#move past label if in step_size
 					while(pos <= truth[truth_id] < pos + step_size): 
 						if(truth_id >= len(truth)-1):
@@ -134,10 +124,16 @@ class Leveau:
 							truth_id += 1
 				else:
 					entry = Entry(getWinData(data,pos), [0,1])
+					data_pairs.append(entry)
 
-				key_pairs.append(entry)
+			#create positive samples
+			for onset in self.labels[key]:
+				pos = int(onset*SAMP_RATE)
+				for i in range(self.true_mult):
+					win_start = int(pos - WIN_SIZE*(i/self.true_mult)*0.8)
+					entry = Entry(getWinData(data, win_start), [1,0])
 
-			data_pairs.append(key_pairs)
+					data_pairs.append(entry)
 
 		print("len datapairs ", len(data_pairs))
 		for pair in data_pairs:
